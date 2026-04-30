@@ -1,8 +1,11 @@
+
+
+
 import "dotenv/config";
 import { Telegraf, Context } from "telegraf";
 
 // Import search module
-import { start, stop } from "./search.js";
+import { start, stop, addSubscriber } from "./search.js";
 
 // ============================================
 // Configuration
@@ -34,6 +37,10 @@ bot.use(async (ctx, next) => {
 
 // /start command
 bot.command("start", async (ctx) => {
+  if (ctx.from?.id) {
+    addSubscriber(ctx.from.id);
+    console.log(`Subscriber added: ${ctx.from.id}`);
+  }
   await ctx.reply(
     "🚗 <b>SlotSeeker Bot</b>\n\n" +
     "Սեղմիր /status տեսնելու համար բոտի վիճակը\n" +
@@ -71,10 +78,17 @@ async function launch() {
   console.log("🤖 Starting Telegram Bot...");
 
   try {
-    await bot.launch();
+    // Add initial subscriber from .env
+    const chatId = process.env.CHAT_ID;
+    if (chatId) {
+      addSubscriber(Number(chatId));
+    }
+
+    // Start the slot checker immediately (don't wait for launch to resolve,
+    // since bot.launch() blocks while long-polling is active)
+    bot.launch();
     console.log("✅ Bot launched successfully");
 
-    // Start the slot checker
     start(bot);
     console.log("🔍 Slot checker started");
   } catch (error) {

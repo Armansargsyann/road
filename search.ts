@@ -30,7 +30,7 @@ const checks: Check[] = [
     name: "Road Exam (Gorcnakan) - Ashtarak",
     branchId: "2046",
     serviceId: "300692",
-    maxDate: new Date("6/4/2026").getTime(),
+    maxDate: new Date("9/20/2026").getTime(),
   },
   {
     name: "Road Exam (Tesakan) - Vanadzor",
@@ -40,17 +40,31 @@ const checks: Check[] = [
   },
 ];
 
-async function sendTelegram(bot: Telegraf | undefined, title: string, message: string) {
+const subscribers = new Set<number>();
+
+export function addSubscriber(chatId: number) {
+  subscribers.add(chatId);
+}
+
+async function sendTelegram(
+  bot: Telegraf | undefined,
+  title: string,
+  message: string,
+  sentKey: string,
+) {
   if (!bot) return;
-  try {
-    // Send to all authorized users or a specific chat ID
-    const chatId = process.env.CHAT_ID;
-    if (chatId) {
+  for (const chatId of subscribers) {
+    const userSent = sent.get(chatId);
+    if (userSent?.has(sentKey)) continue;
+
+    try {
       await bot.telegram.sendMessage(chatId, `${title}\n${message}`);
-      console.log("Telegram message sent!");
+      console.log(`Telegram message sent to ${chatId}!`);
+      if (!sent.has(chatId)) sent.set(chatId, new Set());
+      sent.get(chatId)!.add(sentKey);
+    } catch (err) {
+      console.error(`Failed to send telegram to ${chatId}:`, err);
     }
-  } catch (err) {
-    console.error("Failed to send telegram:", err);
   }
 }
 
@@ -77,7 +91,7 @@ interface DaySlots {
   [key: string]: TimeSlot[];
 }
 
-const sent = new Set<string>();
+const sent = new Map<number, Set<string>>();
 
 async function get(time: number, branchId: string, serviceId: string) {
   const path = "/earlyone/api/AppointmentTimeSlot/GetNearestDay";
@@ -174,14 +188,17 @@ export async function start(bot?: Telegraf) {
         const slots = await get(now, check.branchId, check.serviceId);
         const nearestTime = getNearestTime(slots);
         const sentKey = `${check.name}-${nearestTime}`;
-        const notified = nearestTime && sent.has(sentKey);
 
-        if (nearestTime && nearestTime < check.maxDate && !notified) {
+        if (nearestTime && nearestTime > now && nearestTime < check.maxDate) {
           const dateStr = new Date(nearestTime).toLocaleString();
           console.log(`\nFound ${check.name}: ${dateStr}`);
 
-          await sendTelegram(bot, `${check.name}`, `Available date: ${dateStr}`);
-          sent.add(sentKey);
+          await sendTelegram(
+            bot,
+            `${check.name}`,
+            `Available date: ${dateStr}`,
+            sentKey,
+          );
         } else {
           process.stdout.write(
             `\r${check.name} nearest: ${
