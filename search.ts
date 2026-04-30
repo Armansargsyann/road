@@ -1,19 +1,15 @@
 import { setTimeout as wait } from "timers/promises";
 import { createHmac } from "crypto";
+import { Telegraf } from "telegraf";
 
 const token =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJlNWNjNDYxYi0yNDM3LTQ2NzYtODFiOC1kYmRhZDU5OWYxMDA6QUZBOUFBRDE3MjhCNEI1NzlGMzVGRTRGMTQ3MjQ5MEMiLCJqdGkiOiJmYTkyM2EyOC01ZTU4LTQ3OWQtOTZiYi0zZDAzYTUzZWE1OWIiLCJuYmYiOjE3Nzc0NjQyNjcsImV4cCI6MTgwOTAwMDI2NywiaWF0IjoxNzc3NDY0MjY3fQ.g641LLUxW8xk2Mse-AfbdQ1cMqbRELl17OlkpW2jNrk";
 const hmacSecret = "Wm1kR2JHUXlZV0ZqYUdGelpTNWpiMjB3TURJeE1URT0=";
 
-const resendApiKey = "re_UxysjR9K_3VAiHA4yG4xrno3To6DcoTrt";
-
-const ntfyTopic = "slotseeker-anna";
-
 interface Check {
   name: string;
   branchId: string;
   serviceId: string;
-  emailTo: string;
   maxDate: number;
 }
 
@@ -22,68 +18,39 @@ const checks: Check[] = [
     name: "Road Exam (Gorcnakan) - Yerevan",
     branchId: "2036",
     serviceId: "300692",
-    emailTo:
-      "annasargsyan527.527@gmail.com, armansargsyan1249@gmail.com, asiryankarine10@gmail.com",
-    maxDate: new Date("8/21/2026").getTime(),
+    maxDate: new Date("9/10/2026").getTime(),
   },
   {
     name: "Road Exam (Tesakan) - Yerevan",
     branchId: "2036",
     serviceId: "300691",
-    emailTo: "annasargsyan527.527@gmail.com",
-    maxDate: new Date("6/16/2026").getTime(),
+    maxDate: new Date("8/16/2027").getTime(),
   },
   {
     name: "Road Exam (Gorcnakan) - Ashtarak",
     branchId: "2046",
     serviceId: "300692",
-    emailTo: "annasargsyan527.527@gmail.com",
     maxDate: new Date("6/4/2026").getTime(),
   },
   {
     name: "Road Exam (Tesakan) - Vanadzor",
     branchId: "2043",
     serviceId: "300691",
-    emailTo: "annasargsyan527.527@gmail.com",
     maxDate: new Date("6/16/2026").getTime(),
   },
 ];
 
-async function sendEmail(to: string, subject: string, text: string) {
+async function sendTelegram(bot: Telegraf | undefined, title: string, message: string) {
+  if (!bot) return;
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "SlotSeeker <onboarding@resend.dev>",
-        to: to.split(",").map((e) => e.trim()),
-        subject,
-        text,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Resend error ${res.status}: ${err}`);
+    // Send to all authorized users or a specific chat ID
+    const chatId = process.env.CHAT_ID;
+    if (chatId) {
+      await bot.telegram.sendMessage(chatId, `${title}\n${message}`);
+      console.log("Telegram message sent!");
     }
-    console.log(`Email sent to ${to}!`);
   } catch (err) {
-    console.error("Failed to send email:", err);
-  }
-}
-
-async function sendPush(title: string, message: string) {
-  try {
-    await fetch(`https://ntfy.sh/${ntfyTopic}`, {
-      method: "POST",
-      headers: { Title: title, Priority: "urgent", Tags: "calendar" },
-      body: message,
-    });
-    console.log("Push sent!");
-  } catch (err) {
-    console.error("Failed to send push:", err);
+    console.error("Failed to send telegram:", err);
   }
 }
 
@@ -193,9 +160,9 @@ function getNearestTime(daySlots: DaySlots): number | undefined {
   return nearestTimeSlot;
 }
 
-async function start() {
+export async function start(bot?: Telegraf) {
   let attempt = 0;
-  while (true) {
+  while (isRunning) {
     for (const check of checks) {
       try {
         attempt++;
@@ -213,12 +180,7 @@ async function start() {
           const dateStr = new Date(nearestTime).toLocaleString();
           console.log(`\nFound ${check.name}: ${dateStr}`);
 
-          await sendEmail(
-            check.emailTo,
-            `EarlyOne: Available date ${dateStr} - ${check.name}`,
-            `Available date: ${dateStr}\n${check.name}`,
-          );
-          await sendPush(`${check.name}`, `Available date: ${dateStr}`);
+          await sendTelegram(bot, `${check.name}`, `Available date: ${dateStr}`);
           sent.add(sentKey);
         } else {
           process.stdout.write(
@@ -239,4 +201,9 @@ async function start() {
   }
 }
 
-start();
+let isRunning = true;
+
+export function stop() {
+  console.log("🛑 Stopping slot checker...");
+  isRunning = false;
+}
