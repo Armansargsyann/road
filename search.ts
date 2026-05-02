@@ -1,50 +1,129 @@
 import { setTimeout as wait } from "timers/promises";
 import { createHmac } from "crypto";
 import { Telegraf } from "telegraf";
+import fs from "fs";
+import path from "path";
+import { checks } from "./data/check_Array";
 
-const token =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJlNWNjNDYxYi0yNDM3LTQ2NzYtODFiOC1kYmRhZDU5OWYxMDA6QUZBOUFBRDE3MjhCNEI1NzlGMzVGRTRGMTQ3MjQ5MEMiLCJqdGkiOiJmYTkyM2EyOC01ZTU4LTQ3OWQtOTZiYi0zZDAzYTUzZWE1OWIiLCJuYmYiOjE3Nzc0NjQyNjcsImV4cCI6MTgwOTAwMDI2NywiaWF0IjoxNzc3NDY0MjY3fQ.g641LLUxW8xk2Mse-AfbdQ1cMqbRELl17OlkpW2jNrk";
-const hmacSecret = "Wm1kR2JHUXlZV0ZqYUdGelpTNWpiMjB3TURJeE1URT0=";
+const EARLYONE_TOKEN = process.env.EARLYONE_TOKEN?.trim();
+const HMAC_SECRET = process.env.HMAC_SECRET?.trim();
 
-interface Check {
-  name: string;
-  branchId: string;
-  serviceId: string;
-  maxDate: number;
+if (!EARLYONE_TOKEN || !HMAC_SECRET) {
+  const missing = [
+    !EARLYONE_TOKEN ? "EARLYONE_TOKEN" : null,
+    !HMAC_SECRET ? "HMAC_SECRET" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  throw new Error(`CRITICAL: Missing environment variable(s): ${missing}. Please add them to .env`);
 }
 
-const checks: Check[] = [
-  {
-    name: "Road Exam (Gorcnakan) - Yerevan",
-    branchId: "2036",
-    serviceId: "300692",
-    maxDate: new Date("9/10/2026").getTime(),
-  },
-  {
-    name: "Road Exam (Tesakan) - Yerevan",
-    branchId: "2036",
-    serviceId: "300691",
-    maxDate: new Date("8/16/2027").getTime(),
-  },
-  {
-    name: "Road Exam (Gorcnakan) - Ashtarak",
-    branchId: "2046",
-    serviceId: "300692",
-    maxDate: new Date("9/20/2026").getTime(),
-  },
-  {
-    name: "Road Exam (Tesakan) - Vanadzor",
-    branchId: "2043",
-    serviceId: "300691",
-    maxDate: new Date("6/16/2026").getTime(),
-  },
-];
+function tryBase64Decode(value: string): Buffer | undefined {
+  try {
+    const buf = Buffer.from(value, "base64");
+    if (buf.length === 0) return undefined;
+    const normalized = value.replace(/=+$/, "");
+    const reencoded = buf.toString("base64").replace(/=+$/, "");
+    if (reencoded === normalized) {
+      return buf;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
-const subscribers = new Set<number>();
+function resolveHmacSecret(secret: string): Buffer {
+  const trimmed = secret.trim();
+  const firstDecode = tryBase64Decode(trimmed);
+  if (!firstDecode) {
+    console.log("HMAC_SECRET is not base64-encoded; using raw secret bytes.");
+    return Buffer.from(trimmed, "utf8");
+  }
+
+  const secondDecode = tryBase64Decode(firstDecode.toString("ascii"));
+  if (secondDecode) {
+    console.log("HMAC_SECRET appears to be double-base64 encoded; using double-decoded secret.");
+    return secondDecode;
+  }
+
+  console.log("HMAC_SECRET appears to be base64 encoded; using decoded key.");
+  return firstDecode;
+}
+
+const HMAC_KEY = resolveHmacSecret(HMAC_SECRET);
+
+function decodeJwtExpiry(token: string): Date | undefined {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return undefined;
+
+    const payload = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const decoded = JSON.parse(payload);
+    return decoded.exp ? new Date(decoded.exp * 1000) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const tokenExpiry = decodeJwtExpiry(EARLYONE_TOKEN);
+if (tokenExpiry) {
+  console.log(`EARLYONE_TOKEN expires at ${tokenExpiry.toISOString()}`);
+  if (tokenExpiry.getTime() < Date.now()) {
+    console.warn("⚠️ EARLYONE_TOKEN is already expired. Please refresh the token in .env");
+  }
+}
+
+const DB_FILE = path.join(process.cwd(), "subscribers.json");
+
+let subscribers = new Set<number>();
+const sent = new Map<number, Set<string>>(); 
+let isRunning = true;
+
+try {
+  if (fs.existsSync(DB_FILE)) {
+    const data = fs.readFileSync(DB_FILE, "utf-8");
+    subscribers = new Set(JSON.parse(data));
+    console.log(`Loaded ${subscribers.size} subscribers from DB.`);
+  }
+} catch (err) {
+  console.error("Failed to load subscribers DB:", err);
+}
+
+
+function saveDB() {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(Array.from(subscribers)));
+  } catch (err) {
+    console.error("Failed to save subscribers to DB:", err);
+  }
+}
 
 export function addSubscriber(chatId: number) {
-  subscribers.add(chatId);
+  if (!subscribers.has(chatId)) {
+    subscribers.add(chatId);
+    saveDB();
+    console.log(`Subscriber added: ${chatId}. Total: ${subscribers.size}`);
+  }
 }
+
+export function removeSubscriber(chatId: number) {
+  if (subscribers.has(chatId)) {
+    subscribers.delete(chatId);
+    saveDB();
+    console.log(`Subscriber removed: ${chatId}. Total: ${subscribers.size}`);
+  }
+}
+
+export function stop() {
+  console.log("🛑 Stopping slot checker...");
+  isRunning = false;
+}
+
+
+
+
 
 async function sendTelegram(
   bot: Telegraf | undefined,
@@ -52,16 +131,19 @@ async function sendTelegram(
   message: string,
   sentKey: string,
 ) {
-  if (!bot) return;
+  if (!bot || subscribers.size === 0) return;
+
   for (const chatId of subscribers) {
-    const userSent = sent.get(chatId);
-    if (userSent?.has(sentKey)) continue;
+    if (!sent.has(chatId)) {
+      sent.set(chatId, new Set());
+    }
+    
+    const userSent = sent.get(chatId)!;
+    if (userSent.has(sentKey)) continue;
 
     try {
-      await bot.telegram.sendMessage(chatId, `${title}\n${message}`);
-      console.log(`Telegram message sent to ${chatId}!`);
-      if (!sent.has(chatId)) sent.set(chatId, new Set());
-      sent.get(chatId)!.add(sentKey);
+      await bot.telegram.sendMessage(chatId, `🔔 **${title}**\n${message}`, { parse_mode: 'Markdown' });
+      userSent.add(sentKey);
     } catch (err) {
       console.error(`Failed to send telegram to ${chatId}:`, err);
     }
@@ -78,8 +160,9 @@ function signRequest(
     .sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()))
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
+
   const message = method + path + timestamp + sorted;
-  return createHmac("sha256", hmacSecret).update(message).digest("base64");
+  return createHmac("sha256", HMAC_KEY).update(message).digest("base64");
 }
 
 interface TimeSlot {
@@ -91,7 +174,25 @@ interface DaySlots {
   [key: string]: TimeSlot[];
 }
 
-const sent = new Map<number, Set<string>>();
+const NETWORK_TIMEOUT_MS = 10000;
+const NETWORK_RETRIES = 2;
+
+function isRecoverableNetworkError(error: any) {
+  if (!error) return false;
+  const recoverableCodes = ["ETIMEDOUT", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN"];
+  return recoverableCodes.includes(error.code) || error.name === "AbortError";
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 async function get(time: number, branchId: string, serviceId: string) {
   const path = "/earlyone/api/AppointmentTimeSlot/GetNearestDay";
@@ -108,41 +209,50 @@ async function get(time: number, branchId: string, serviceId: string) {
   const myHeaders = new Headers();
   myHeaders.append("Content-Type", "application/json");
   myHeaders.append("Cache-Control", "no-cache");
-  myHeaders.append(
-    "User-Agent",
-    "earlyone/4 CFNetwork/3860.500.112 Darwin/25.4.0",
-  );
+  myHeaders.append("User-Agent", "earlyone/4 CFNetwork/3860.500.112 Darwin/25.4.0");
   myHeaders.append("Accept", "*/*");
   myHeaders.append("Accept-Language", "en-GB,en-US;q=0.9,en;q=0.8");
   myHeaders.append("Accept-Encoding", "gzip, deflate");
   myHeaders.append("X-Culture", "en");
   myHeaders.append("X-Timestamp", timestamp);
   myHeaders.append("X-Signature", signature);
-  myHeaders.append("Authorization", `Bearer ${token}`);
+  myHeaders.append("Authorization", `Bearer ${EARLYONE_TOKEN}`);
   myHeaders.append("AppVersion", "5.0.0(4)");
 
   const endpoint = "https://e1-api.earlyone.com" + path;
   const url = new URL(endpoint);
   url.search = new URLSearchParams(params).toString();
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: myHeaders,
-    redirect: "follow",
-  });
+  let lastError: any;
+  for (let attempt = 0; attempt <= NETWORK_RETRIES; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, {
+        method: "GET",
+        headers: myHeaders,
+        redirect: "follow",
+      });
 
-  if (!res.ok) {
-    const msg = await res.text().catch(() => null);
-    throw new Error(`HTTP error! status: ${res.status}, message: ${msg}`);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => null);
+        const expiryInfo = tokenExpiry ? ` Token expiry: ${tokenExpiry.toISOString()}.` : "";
+        throw new Error(`HTTP error! status: ${res.status}, message: ${msg || "<empty>"}.${expiryInfo}`);
+      }
+
+      const data = await res.json();
+      if (!data || typeof data !== "object") throw new Error("Invalid JSON response");
+      return data as DaySlots;
+    } catch (error: any) {
+      lastError = error;
+      if (attempt < NETWORK_RETRIES && isRecoverableNetworkError(error)) {
+        console.warn(`Network issue detected for ${branchId}/${serviceId}, retrying (${attempt + 1}/${NETWORK_RETRIES})...`, error.code || error.name || error.message);
+        await wait(2000);
+        continue;
+      }
+      throw error;
+    }
   }
 
-  const data = await res.json();
-
-  if (!data || typeof data !== "object") {
-    throw new Error("Invalid JSON response");
-  }
-
-  return data as DaySlots;
+  throw lastError;
 }
 
 function getNearestTime(daySlots: DaySlots): number | undefined {
@@ -151,15 +261,10 @@ function getNearestTime(daySlots: DaySlots): number | undefined {
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .shift();
 
-  if (!nearestDay) {
-    return undefined;
-  }
+  if (!nearestDay) return undefined;
 
   const timeSlots = daySlots[nearestDay.dateStr];
-
-  if (!timeSlots || timeSlots.length === 0) {
-    return undefined;
-  }
+  if (!timeSlots || timeSlots.length === 0) return undefined;
 
   const nearestTimeSlot = timeSlots
     .map((slot) => {
@@ -176,51 +281,38 @@ function getNearestTime(daySlots: DaySlots): number | undefined {
 
 export async function start(bot?: Telegraf) {
   let attempt = 0;
+  
   while (isRunning) {
     for (const check of checks) {
+      if (!isRunning) break; 
+      
       try {
         attempt++;
-
-        process.stdout.write(
-          `\r- Attempt ${attempt}: Checking ${check.name}... ${" ".repeat(30)}`,
-        );
+        process.stdout.write(`\r- Attempt ${attempt}: Checking ${check.name}... ${" ".repeat(20)}`);
+        
         const now = Date.now();
         const slots = await get(now, check.branchId, check.serviceId);
         const nearestTime = getNearestTime(slots);
-        const sentKey = `${check.name}-${nearestTime}`;
-
+        
         if (nearestTime && nearestTime > now && nearestTime < check.maxDate) {
-          const dateStr = new Date(nearestTime).toLocaleString();
-          console.log(`\nFound ${check.name}: ${dateStr}`);
-
-          await sendTelegram(
-            bot,
-            `${check.name}`,
-            `Available date: ${dateStr}`,
-            sentKey,
-          );
-        } else {
-          process.stdout.write(
-            `\r${check.name} nearest: ${
-              nearestTime ? new Date(nearestTime).toDateString() : "N/A"
-            }. ${" ".repeat(30)}\n`,
-          );
+          const sentKey = `${check.name}-${nearestTime}`;
+          const dateStr = new Date(nearestTime).toLocaleString("hy-AM");
+          
+          console.log(`\n✅ Found ${check.name}: ${dateStr}`);
+          await sendTelegram(bot, check.name, `Ազատ տեղ կա:\n📅 ${dateStr}`, sentKey);
         }
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        const code = err?.code ? ` code=${err.code}` : "";
+        const name = err?.name ? ` (${err.name})` : "";
+        console.error(`\n❌ Error checking ${check.name}:${name}${code}`, err.message || err);
       }
 
-      await wait(5000);
+      await wait(5000); 
     }
 
-    process.stdout.write(`\rWaiting... ${" ".repeat(50)}`);
-    await wait(30000);
+    if (isRunning) {
+      process.stdout.write(`\r⏳ Waiting 30s before next cycle... ${" ".repeat(30)}`);
+      await wait(50000);
+    }
   }
-}
-
-let isRunning = true;
-
-export function stop() {
-  console.log("🛑 Stopping slot checker...");
-  isRunning = false;
 }
