@@ -19,40 +19,6 @@ if (!EARLYONE_TOKEN || !HMAC_SECRET) {
   throw new Error(`CRITICAL: Missing environment variable(s): ${missing}. Please add them to .env`);
 }
 
-function tryBase64Decode(value: string): Buffer | undefined {
-  try {
-    const buf = Buffer.from(value, "base64");
-    if (buf.length === 0) return undefined;
-    const normalized = value.replace(/=+$/, "");
-    const reencoded = buf.toString("base64").replace(/=+$/, "");
-    if (reencoded === normalized) {
-      return buf;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-function resolveHmacSecret(secret: string): Buffer {
-  const trimmed = secret.trim();
-  const firstDecode = tryBase64Decode(trimmed);
-  if (!firstDecode) {
-    console.log("HMAC_SECRET is not base64-encoded; using raw secret bytes.");
-    return Buffer.from(trimmed, "utf8");
-  }
-
-  const secondDecode = tryBase64Decode(firstDecode.toString("ascii"));
-  if (secondDecode) {
-    console.log("HMAC_SECRET appears to be double-base64 encoded; using double-decoded secret.");
-    return secondDecode;
-  }
-
-  console.log("HMAC_SECRET appears to be base64 encoded; using decoded key.");
-  return firstDecode;
-}
-
-const HMAC_KEY = resolveHmacSecret(HMAC_SECRET);
 
 function decodeJwtExpiry(token: string): Date | undefined {
   try {
@@ -162,7 +128,7 @@ function signRequest(
     .join("&");
 
   const message = method + path + timestamp + sorted;
-  return createHmac("sha256", HMAC_KEY).update(message).digest("base64");
+  return createHmac("sha256", HMAC_SECRET).update(message).digest("base64");
 }
 
 interface TimeSlot {
