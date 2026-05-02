@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { Telegraf } from "telegraf";
 
-// Ավելացրել ենք removeSubscriber-ը import-ի մեջ
-import { start, stop, addSubscriber, removeSubscriber } from "./search.js";
+import { addSubscriber, removeSubscriber } from "./subscribers.js";
+import { start, stop } from "./checker.js";
+import { checks } from "./data/checks.js";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
@@ -11,13 +12,6 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new Telegraf(BOT_TOKEN);
-
-bot.use(async (ctx, next) => {
-  const startTime = Date.now();
-  await next();
-  const ms = Date.now() - startTime;
-  console.log(`[${ctx.from?.id}] response time: ${ms}ms`);
-});
 
 bot.command("start", async (ctx) => {
   if (ctx.from?.id) {
@@ -49,7 +43,18 @@ bot.command("status", async (ctx) => {
     "✅ <b>Bot-ը աշխատում է</b>\n\n" +
     "🔍 Ստուգում է ժամկետները...\n" +
     `⏰ Սպասման ժամանակ: 30 վրկ\n` +
-    `📍 Ստուգվող վայրեր: 4`,
+    `📍 Ստուգվող վայրեր: ${checks.length}`,
+    { parse_mode: "HTML" }
+  );
+});
+
+bot.command("ping", async (ctx) => {
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600);
+  const m = Math.floor((uptime % 3600) / 60);
+  const s = Math.floor(uptime % 60);
+  await ctx.reply(
+    `🏓 <b>Pong!</b>\n\n⏱ Uptime: ${h}h ${m}m ${s}s\n📍 Ստուգվող վայրեր: ${checks.length}`,
     { parse_mode: "HTML" }
   );
 });
@@ -59,6 +64,7 @@ bot.command("help", async (ctx) => {
     "<b>Հրամաններ</b>\n\n" +
     "/start - Ստանալ ծանուցումներ\n" +
     "/stop - Անջատել ծանուցումները\n" +
+    "/ping - Ստուգել բոտը\n" +
     "/status - Բոտի վիճակը\n" +
     "/help - Օգնություն",
     { parse_mode: "HTML" }
