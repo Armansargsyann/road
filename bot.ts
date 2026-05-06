@@ -88,11 +88,35 @@ bot.command("settings", async (ctx) => {
     return;
   }
   const buttons = [
+    ...userChecks.map((c) => [Markup.button.callback("\u274C " + c, "rm:" + c)]),
     [Markup.button.callback("\u2795 Ավելացնել տարածաշրջան", "addmore")],
     [Markup.button.callback("\u{1F5D1} Ջնջել բոլորը", "clearall")],
   ];
   await ctx.reply(
-    "\u2699\uFE0F <b>Ձեր ընտրությունները</b>\n\n" + userChecks.map((c) => "\u2022 " + c).join("\n"),
+    "\u2699\uFE0F <b>Ձեր ընտրությունները</b>\n\nՍեղմեք հեռացնելու համար:",
+    { parse_mode: "HTML", ...Markup.inlineKeyboard(buttons) },
+  );
+});
+
+bot.action(/^rm:(.+)$/, async (ctx) => {
+  const chatId = ctx.from?.id;
+  if (!chatId) return;
+  const checkToRemove = ctx.match[1];
+  await ctx.answerCbQuery();
+  const current = getUserChecks(chatId);
+  const updated = current.filter((c) => c !== checkToRemove);
+  setUserChecks(chatId, updated);
+  if (updated.length === 0) {
+    await ctx.editMessageText("\u{1F5D1} Բոլոր ընտրությունները ջնջվեցին։ Սեղմեք /start", { parse_mode: "HTML" });
+    return;
+  }
+  const buttons = [
+    ...updated.map((c) => [Markup.button.callback("\u274C " + c, "rm:" + c)]),
+    [Markup.button.callback("\u2795 Ավելացնել տարածաշրջան", "addmore")],
+    [Markup.button.callback("\u2705 Պատրաստ է", "done")],
+  ];
+  await ctx.editMessageText(
+    "\u2699\uFE0F <b>Ձեր ընտրությունները</b>\n\nՍեղմեք հեռացնելու համար:",
     { parse_mode: "HTML", ...Markup.inlineKeyboard(buttons) },
   );
 });
