@@ -49,13 +49,9 @@ bot.action(/^pick:(.+):(.+)$/, async (ctx) => {
   const updated = [...new Set([...current, ...toAdd])];
   setUserChecks(chatId, updated);
   const choiceLabel = choice === "both" ? "Տեսական + Գործնական" : choice === "Tesakan" ? "Տեսական" : "Գործնական";
-  const buttons = [
-    [Markup.button.callback("\u2795 Ավելացնել այլ տարածաշրջան", "addmore")],
-    [Markup.button.callback("\u2705 Պատրաստ է", "done")],
-  ];
   await ctx.editMessageText(
-    "\u2705 <b>" + regionLabel + " - " + choiceLabel + "</b> ավելացվեց\n\nՁեր ընտրությունները:\n" + updated.map((c) => "\u2022 " + c).join("\n"),
-    { parse_mode: "HTML", ...Markup.inlineKeyboard(buttons) },
+    "\u2705 <b>" + regionLabel + " - " + choiceLabel + "</b> ավելացվեց\n\nՁեր ընտրությունները:\n" + updated.map((c) => "\u2022 " + c).join("\n") + "\n\n/settings - փոխել ընտրությունները\n/start - ավելացնել այլ տարածաշրջան",
+    { parse_mode: "HTML" },
   );
 });
 
