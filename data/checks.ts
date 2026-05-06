@@ -1,58 +1,35 @@
-interface Check {
+export interface Check {
   name: string;
+  region: string;
+  service: "Tesakan" | "Gorcnakan";
   branchId: string;
   serviceId: string;
   maxDate: number;
 }
-export const checks: Check[] = [
-  // Աշտարակ
-  //{ name: "Ashtarak - Tesakan", branchId: "2046", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  { name: "Ashtarak - Gorcnakan", branchId: "2046", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
 
-  // Արարատ
-  //{ name: "Ararat - Tesakan", branchId: "2047", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Ararat - Gorcnakan", branchId: "2047", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
+const MAX_DATE = new Date("2026-12-31").getTime();
 
-  
-  //{ name: "Armavir - Tesakan", branchId: "2041", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Armavir - Gorcnakan", branchId: "2041", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
+export const regions = [
+  { name: "Ashtarak", label: "Աշտարակ", branchId: "2046" },
+  { name: "Ararat", label: "Արարատ", branchId: "2047" },
+  { name: "Armavir", label: "Արմավիր", branchId: "2041" },
+  { name: "Gyumri", label: "Գյումրի", branchId: "2042" },
+  { name: "Goris", label: "Գորիս", branchId: "2040" },
+  { name: "Yeghegnadzor", label: "Եղեգնաձոր", branchId: "2048" },
+  { name: "Yerevan", label: "Երևան", branchId: "2036" },
+  { name: "Ijevan", label: "Իջևան", branchId: "2044" },
+  { name: "Kapan", label: "Կապան", branchId: "2039" },
+  { name: "Kotayq", label: "Կոտայք", branchId: "2045" },
+  { name: "Martuni", label: "Մարտունի", branchId: "2038" },
+  { name: "Sevan", label: "Սևան", branchId: "2037" },
+  { name: "Vanadzor", label: "Վանաձոր", branchId: "2043" },
+] as const;
 
-  // Գյումրի
-  //{ name: "Gyumri - Tesakan", branchId: "2042", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Gyumri - Gorcnakan", branchId: "2042", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
+export const checks: Check[] = [];
 
-  
-  //{ name: "Goris - Tesakan", branchId: "2040", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Goris - Gorcnakan", branchId: "2040", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  
-  //{ name: "Yeghegnadzor - Tesakan", branchId: "2048", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Yeghegnadzor - Gorcnakan", branchId: "2048", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  
-  { name: "Yerevan - Tesakan", branchId: "2036", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  { name: "Yerevan - Gorcnakan", branchId: "2036", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-   /// { name: "Ijevan - Tesakan", branchId: "2044", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Ijevan - Gorcnakan", branchId: "2044", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  
-  //{ name: "Kapan - Tesakan", branchId: "2039", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Kapan - Gorcnakan", branchId: "2039", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  
-  //{ name: "Kotayq - Tesakan", branchId: "2045", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Kotayq - Gorcnakan", branchId: "2045", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  
-  //{ name: "Martuni - Tesakan", branchId: "2038", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Martuni - Gorcnakan", branchId: "2038", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  // Սևան
-  //{ name: "Sevan - Tesakan", branchId: "2037", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
-  //{ name: "Sevan - Gorcnakan", branchId: "2037", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() },
-
-  // Վանաձոր
-  { name: "Vanadzor - Tesakan", branchId: "2043", serviceId: "300691", maxDate: new Date("2026-12-31").getTime() },
- // { name: "Vanadzor - Gorcnakan", branchId: "2043", serviceId: "300692", maxDate: new Date("2026-12-31").getTime() }
-];
+for (const r of regions) {
+  checks.push(
+    { name: r.name + " - Tesakan", region: r.name, service: "Tesakan", branchId: r.branchId, serviceId: "300691", maxDate: MAX_DATE },
+    { name: r.name + " - Gorcnakan", region: r.name, service: "Gorcnakan", branchId: r.branchId, serviceId: "300693", maxDate: MAX_DATE },
+  );
+}

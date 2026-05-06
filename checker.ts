@@ -6,8 +6,7 @@ import { fetchNearestDay, DaySlots } from "./api.js";
 import { getSubscribers } from "./subscribers.js";
 import { checks } from "./data/checks.js";
 
-const DELAY_BETWEEN_CHECKS_MS = 5_000;
-const CYCLE_INTERVAL_MS = 30_000;
+const CYCLE_INTERVAL_MS = 10_000;
 const NOTIFIED_FILE = path.join(process.cwd(), "notified.json");
 
 let isRunning = true;
@@ -20,7 +19,6 @@ function loadNotified() {
       for (const [chatId, keys] of Object.entries(data)) {
         notified.set(Number(chatId), new Set(keys as string[]));
       }
-      console.log(`Loaded notified history for ${notified.size} user(s).`);
     }
   } catch {}
 }
@@ -58,18 +56,21 @@ export function getNearestTime(daySlots: DaySlots): number | undefined {
     .sort((a, b) => a - b)[0];
 }
 
-async function notify(bot: Telegraf, title: string, message: string, key: string) {
-  for (const chatId of getSubscribers()) {
+async function notify(bot: Telegraf, checkName: string, message: string, key: string) {
+  const subs = getSubscribers();
+
+  for (const [chatId, prefs] of subs) {
+    // only notify if user subscribed to this check (or has no prefs = legacy user, notify all)
+    if (prefs.checks.length > 0 && !prefs.checks.includes(checkName)) continue;
+
     if (!notified.has(chatId)) notified.set(chatId, new Set());
     const seen = notified.get(chatId)!;
     if (seen.has(key)) continue;
 
     try {
-      await bot.telegram.sendMessage(
-        chatId,
-        `🔔 <b>${title}</b>\n${message}`,
-        { parse_mode: "HTML" },
-      );
+      await bot.telegram.sendMessage(chatId, `\uD83D\uDD14 <b>${checkName}</b>\n${message}`, {
+        parse_mode: "HTML",
+      });
       seen.add(key);
       saveNotified();
     } catch (err) {
@@ -83,37 +84,67 @@ export function stop() {
   isRunning = false;
 }
 
+export function getActiveChecks() {
+  // collect unique check names that at least one user wants
+  const wanted = new Set<string>();
+  for (const [, prefs] of getSubscribers()) {
+    if (prefs.checks.length === 0) {
+      // legacy user with no prefs - check everything
+      return checks;
+    }
+    for (const c of prefs.checks) wanted.add(c);
+  }
+  return checks.filter((c) => wanted.has(c.name));
+}
+
 export async function start(bot: Telegraf) {
-  let attempt = 0;
+  let cycle = 0;
 
   while (isRunning) {
-    for (const check of checks) {
+    cycle++;
+    const active = getActiveChecks();
+    if (active.length === 0) {
+      console.log(`\n[Cycle ${cycle}] No checks to run, waiting...`);
+      await wait(CYCLE_INTERVAL_MS);
+      continue;
+    }
+
+    const now = Date.now();
+    console.log(`\n[Cycle ${cycle}] Checking ${active.length} locations in parallel...`);
+
+    const results = await Promise.allSettled(
+      active.map((check) =>
+        fetchNearestDay(new Date(now), check.branchId, check.serviceId).then(
+          (slots) => ({ check, slots }),
+        ),
+      ),
+    );
+
+    for (const result of results) {
       if (!isRunning) break;
 
-      try {
-        attempt++;
-        process.stdout.write(
-          `\r[${attempt}] Checking ${check.name}...${" ".repeat(20)}`,
-        );
-
-        const now = Date.now();
-        const slots = await fetchNearestDay(new Date(now), check.branchId, check.serviceId);
-        const nearestTime = getNearestTime(slots);
-
-        if (nearestTime && nearestTime > now && nearestTime < check.maxDate) {
-          const dateStr = new Date(nearestTime).toLocaleString("hy-AM");
-          console.log(`\n=> ${check.name}: ${dateStr}`);
-          await notify(bot, check.name, `\u0531\u0566\u0561\u057F \u057F\u0565\u0572 \u056F\u0561:\n\u{1F4C5} ${dateStr}`, `${check.name}-${nearestTime}`);
-        }
-      } catch (err: any) {
-        console.error(`\nError [${check.name}]: ${err.message}`);
+      if (result.status === "rejected") {
+        console.error(`  x ${result.reason?.message || result.reason}`);
+        continue;
       }
 
-      await wait(DELAY_BETWEEN_CHECKS_MS);
+      const { check, slots } = result.value;
+      const nearestTime = getNearestTime(slots);
+
+      if (nearestTime && nearestTime > now && nearestTime < check.maxDate) {
+        const dateStr = new Date(nearestTime).toLocaleString("hy-AM");
+        console.log(`  => ${check.name}: ${dateStr}`);
+        await notify(
+          bot,
+          check.name,
+          `\u0531\u0566\u0561\u057F \u057F\u0565\u0572 \u056F\u0561:\n\uD83D\uDCC5 ${dateStr}`,
+          `${check.name}-${nearestTime}`,
+        );
+      }
     }
 
     if (isRunning) {
-      process.stdout.write(`\rNext cycle in ${CYCLE_INTERVAL_MS / 1000}s...${" ".repeat(30)}`);
+      console.log(`Next cycle in ${CYCLE_INTERVAL_MS / 1000}s...`);
       await wait(CYCLE_INTERVAL_MS);
     }
   }
