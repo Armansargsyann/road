@@ -6,7 +6,7 @@ import { fetchNearestDay, DaySlots } from "./api.js";
 import { getSubscribers } from "./subscribers.js";
 import { checks } from "./data/checks.js";
 
-const CYCLE_INTERVAL_MS = 10_000;
+const CYCLE_INTERVAL_MS = 40_000;
 const NOTIFIED_FILE = path.join(process.cwd(), "notified.json");
 
 let isRunning = true;
@@ -56,7 +56,12 @@ export function getNearestTime(daySlots: DaySlots): number | undefined {
     .sort((a, b) => a - b)[0];
 }
 
-async function notify(bot: Telegraf, checkName: string, message: string, key: string) {
+async function notify(
+  bot: Telegraf,
+  checkName: string,
+  message: string,
+  key: string,
+) {
   const subs = getSubscribers();
 
   for (const [chatId, prefs] of subs) {
@@ -68,9 +73,13 @@ async function notify(bot: Telegraf, checkName: string, message: string, key: st
     if (seen.has(key)) continue;
 
     try {
-      await bot.telegram.sendMessage(chatId, `\uD83D\uDD14 <b>${checkName}</b>\n${message}`, {
-        parse_mode: "HTML",
-      });
+      await bot.telegram.sendMessage(
+        chatId,
+        `\uD83D\uDD14 <b>${checkName}</b>\n${message}`,
+        {
+          parse_mode: "HTML",
+        },
+      );
       seen.add(key);
       saveNotified();
     } catch (err) {
@@ -110,7 +119,9 @@ export async function start(bot: Telegraf) {
     }
 
     const now = Date.now();
-    console.log(`\n[Cycle ${cycle}] Checking ${active.length} locations in parallel...`);
+    console.log(
+      `\n[Cycle ${cycle}] Checking ${active.length} locations in parallel...`,
+    );
 
     const results = await Promise.allSettled(
       active.map((check) =>
